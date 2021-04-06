@@ -10,7 +10,7 @@ import rpcproto
 class ProcessChannel:
     @staticmethod
     def _parseLine( line ):
-        obj = ast.literal_eval( line, dict )
+        obj = ast.literal_eval( line )
         return obj
 
     @staticmethod
@@ -30,33 +30,29 @@ class ProcessChannel:
         self._errQueue = asyncio.Queue( ) # Cola de líneas recibidas desde stderr.
 
     async def run( self, name = None ):
-        print( 'Iniciando RUN' )
-
         if name is not None:
             self._name = name
 
         taskNamePrefix = self._argv0 if self._name is None else self._name
 
-        self._errTask = asyncio.create_task( self._readErr( ), taskNamePrefix + '.ErrTask' )
-        self._inTask = asyncio.create_task( self._readIn( ), taskNamePrefix + '.InTask' )
-
         self._process = await asyncio.create_subprocess_exec( self._argv0, self._args,
                                                               stdin = asyncio.subprocess.PIPE, stderr = asyncio.subprocess.PIPE, stdout = asyncio.subprocess.PIPE )
+
+        self._errTask = asyncio.create_task( self._readErr( ), name = taskNamePrefix + '.ErrTask' )
+        self._inTask = asyncio.create_task( self._readIn( ), name = taskNamePrefix + '.InTask' )
 
         await self._errTask
         await self._inTask
 
-        print( 'Saliendo de RUN' )
-
     async def _readErr( self ):
         while True:
             err = await self._process.stderr.readline( )
-            self._errQueue.put( ( datetime.datetime.now( ), err ) )
+            await self._errQueue.put( ( datetime.datetime.now( ), err ) )
 
     async def _readIn( self ):
         while True:
             line = await self._process.stdout.readline( )
-            message = ProcessChannel._parseLine( line )
+            message = ProcessChannel._parseLine( line.strip( ).decode( 'UTF-8' ) )
 
             if 'id' in message:
                 if 'method' in message:
@@ -104,7 +100,6 @@ class ProcessChannel:
 async def notifyReceived( proc ):
     while True:
         msg = await proc.nextNotify( )
-
         print( msg )
 
 async def main( ):
@@ -112,10 +107,7 @@ async def main( ):
     handler = asyncio.create_task( notifyReceived( child ) )
     childRun = asyncio.create_task( child.run( ) )
 
-    print( 'Antes de iniciar el handler' )
     await handler
-    print( 'Despues de iniciar el handler' )
-
 
 if __name__ == '__main__':
     asyncio.run( main( ) )
